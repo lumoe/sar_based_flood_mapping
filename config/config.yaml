@@ -1,0 +1,9 @@
+data:
+  test:
+  train:
+    images_water: "data/train/Sentinel-1/water/"
+    reference_water: "data/train/reference/water"
+    images_flood: "data/train/Sentinel-1/floods/"
+    reference_flood: "data/train/reference/floods"
+  geo_results:
+    folder: "data/geo"

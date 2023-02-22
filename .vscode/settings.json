@@ -1,0 +1,5 @@
+{
+  "python.formatting.autopep8Path": "/home/lukas/anaconda3/envs/sar_based_flood_mapping/bin/autopep8",
+  "python.formatting.provider": "autopep8",
+  "python.analysis.typeCheckingMode": "basic"
+}
