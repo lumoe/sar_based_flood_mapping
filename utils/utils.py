@@ -13,15 +13,26 @@ from rasterio import mask, warp
 
 def paths_train_reference_images(type: Literal["water", "flood"]) -> Tuple[List[str], List[str]]:
     images_folder_filter = os.path.join(
+        config.data.train.images_water if type == "water" else config.data.train.images_flood, '**/*WARPED.tif')
+    reference_folder_filter = os.path.join(
+        config.data.train.reference_water if type == "water" else config.data.train.reference_flood, '**/*WARPED.tif')
+    paths_X, paths_Y = glob.glob(images_folder_filter, recursive=True), glob.glob(
+        reference_folder_filter, recursive=True)
+
+    # Filter out paths that do do not have TILED in the name
+    # paths_X = [path for path in paths_X if "TILED" not in path]
+    # paths_Y = [path for path in paths_Y if "TILED" not in path]
+
+    return paths_X, paths_Y
+
+
+def path_to_all_images(type: Literal["water", "flood"]) -> Tuple[List[str], List[str]]:
+    images_folder_filter = os.path.join(
         config.data.train.images_water if type == "water" else config.data.train.images_flood, '**/*.tif')
     reference_folder_filter = os.path.join(
         config.data.train.reference_water if type == "water" else config.data.train.reference_flood, '**/*.tif')
     paths_X, paths_Y = glob.glob(images_folder_filter, recursive=True), glob.glob(
         reference_folder_filter, recursive=True)
-
-    # Filter out paths that do do not have TILED in the name
-    paths_X = [path for path in paths_X if "TILED" not in path]
-    paths_Y = [path for path in paths_Y if "TILED" not in path]
 
     return paths_X, paths_Y
 
