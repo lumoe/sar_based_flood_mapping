@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from rasterio.windows import Window
 from rasterio.plot import show
+import tempfile
+
 
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 
@@ -14,8 +16,33 @@ x_paths, y_paths = paths_train_reference_images(type='flood')
 found_samples = 0
 
 # go through x_paths and y_paths and remove the ones that conatin "Myanmar2019" anywhere in the string
-x_paths = [x for x in x_paths if 'Greece' in x]
-y_paths = [y for y in y_paths if 'Greece' in y]
+x_paths = [x for x in x_paths if 'Texas' in x]
+y_paths = [y for y in y_paths if 'Texas' in y]
+
+print(x_paths[0])
+print(y_paths[0])
+
+
+def reproject_sar_to_reference_crs(sar_image_path, reference_crs):
+    with rasterio.open(sar_image_path) as src:
+        src_crs = src.crs
+        if src_crs != reference_crs:
+            transform, width, height = calculate_default_transform(
+                src_crs, reference_crs, src.width, src.height, *src.bounds)
+            sar_data = np.empty((height, width), dtype=src.meta['dtype'])
+            reproject(
+                source=rasterio.band(src, 1),
+                destination=sar_data,
+                src_transform=src.transform,
+                src_crs=src_crs,
+                dst_transform=transform,
+                dst_crs=reference_crs,
+                resampling=Resampling.nearest)
+            sar_transform = transform
+        else:
+            sar_data = src.read(1)
+            sar_transform = src.transform
+    return sar_data, sar_transform, reference_crs
 
 
 def get_reference_extent_and_window(ref_image_path):
@@ -31,27 +58,70 @@ def crop_sar_to_reference(sar_image_path, extent):
     with rasterio.open(sar_image_path) as src:
         sar_transform = src.transform
         sar_crs = src.crs
-        col_start, row_start = src.index(left, top)
-        col_stop, row_stop = src.index(right, bottom)
+        col_start, row_start = map(round, src.index(left, top))
+        col_stop, row_stop = map(round, src.index(right, bottom))
         width, height = col_stop - col_start, row_stop - row_start
         sar_window = Window(col_off=row_start,
                             row_off=col_start, width=height, height=width)
         sar_data = src.read(1, window=sar_window)
         sar_transform = src.window_transform(sar_window)
-    return sar_data, sar_transform, sar_crs, sar_window
+        profile = src.profile
+        profile.update({
+            'width': height,
+            'height': width,
+            'transform': sar_transform,
+        })
+
+        temp_file = tempfile.NamedTemporaryFile(suffix='.tif', delete=False)
+        temp_file.close()
+
+        with rasterio.open(temp_file.name, 'w', **profile) as sar_img:
+            sar_img.write(sar_data, 1)
+
+        cropped_sar_image = rasterio.open(temp_file.name)
+
+    return cropped_sar_image
+    # return sar_data, sar_transform, sar_crs, sar_window
+
+# def crop_sar_to_reference(sar_data, sar_transform, sar_crs, extent):
+#     left, bottom, right, top, window = extent
+#     sar_crs = src.crs
+#     with rasterio.open(sar_image_path) as src:
+#         sar_transform = src.transform
+#         col_start, row_start = map(round, src.index(left, top))
+#         col_stop, row_stop = map(round, src.index(right, bottom))
+#         width, height = col_stop - col_start, row_stop - row_start
+#         sar_window = Window(col_off=row_start,
+#                             row_off=col_start, width=height, height=width)
+#         # sar_window = Window(col_off=col_start,
+#         #                     row_off=row_start, width=width, height=height)
+#         sar_data = src.read(1, window=sar_window)
+#         sar_transform = src.window_transform(sar_window)
+#     return sar_data, sar_transform, sar_crs, sar_window
 
 
 reference_image_path = y_paths[0]
-with rasterio.open(reference_image_path) as src:
-    reference_data = src.read(1)
-    reference_transform = src.transform
-    reference_crs = src.crs
+ref_src = rasterio.open(reference_image_path)
+reference_data = ref_src.read(1)
+reference_transform = ref_src.transform
+reference_crs = ref_src.crs
 
 sar_image_path = x_paths[0]
+
+sar_data, sar_transform, sar_crs = reproject_sar_to_reference_crs(
+    sar_image_path, reference_crs)
+
 extent = get_reference_extent_and_window(
     reference_image_path)
-sar_data, sar_transform, sar_crs, sar_window = crop_sar_to_reference(
-    sar_image_path, extent)
+# sar_data, sar_transform, sar_crs, sar_window = crop_sar_to_reference(
+#     sar_image_path, extent)
+# sar_data, sar_transform, sar_crs, sar_window = crop_sar_to_reference(
+#     sar_image_path, extent)
+
+cropped_sar_image = crop_sar_to_reference(sar_image_path, extent)
+sar_data = cropped_sar_image.read(1)
+sar_transform = cropped_sar_image.transform
+sar_crs = cropped_sar_image.crs
 
 
 def plot_images(reference_data, reference_transform, sar_data, sar_transform):
@@ -93,11 +163,24 @@ def sliding_window(width, height, window_size=(200, 200), stride=(200, 200)):
             yield col, row, window_size[0], window_size[1]
 
 
-def extract_samples(image_data, width, height, window_size=(200, 200), stride=(200, 200)):
+# def extract_samples(image_data, width, height, window_size=(200, 200), stride=(200, 200)):
+#     samples = []
+#     for col, row, win_width, win_height in sliding_window(width, height, window_size, stride):
+#         sample = image_data[row:row + win_width, col:col + win_height]
+#         samples.append(sample)
+#     return samples
+
+def extract_samples(src, window_size=(200, 200), stride=(50, 50)):
     samples = []
+    width, height = src.width, src.height
+
     for col, row, win_width, win_height in sliding_window(width, height, window_size, stride):
-        sample = image_data[row:row + win_height, col:col + win_width]
-        samples.append(sample)
+        window = Window(col_off=col, row_off=row,
+                        width=win_width, height=win_height)
+        sample_data = src.read(1, window=window)
+        sample_transform = src.window_transform(window)
+        samples.append((sample_data, sample_transform))
+
     return samples
 
 
@@ -113,13 +196,34 @@ print_image_bounds(sar_image_path, "SAR")
 
 width, height = window.width, window.height
 
-ref_samples = extract_samples(
-    reference_data, reference_data.shape[1], reference_data.shape[0])
-sar_samples = extract_samples(sar_data, sar_data.shape[1], sar_data.shape[0])
+ref_samples = extract_samples(ref_src)
+sar_samples = extract_samples(cropped_sar_image)
 
 
-for idx, sample in enumerate(zip(ref_samples, sar_samples)):
-    # plot_images(sample[0], reference_transform, sample[1], sar_transform)
-    plot_overlapping_images(
-        sample[0], sample[1], reference_transform, sar_transform)
-    # matplot_overlapping_images(sample[0], sample[1])
+def plot_samples(ref_samples, sar_samples, alpha=0.5):
+    n_samples = len(ref_samples)
+
+    for i, (ref_sample, sar_sample) in enumerate(zip(ref_samples, sar_samples)):
+        fig, ax = plt.subplots(figsize=(8, 8))
+
+        ref_data, ref_transform = ref_sample
+        sar_data, sar_transform = sar_sample
+
+        show(ref_data, transform=ref_transform, ax=ax, alpha=alpha,
+             cmap='gray', title=f'Reference Sample {i + 1}')
+        show(sar_data, transform=sar_transform, ax=ax,
+             alpha=alpha, cmap='jet', title=f'SAR Sample {i + 1}')
+
+        plt.tight_layout()
+        plt.show()
+        plt.close(fig)
+
+
+plot_samples(ref_samples, sar_samples)
+
+
+# for idx, sample in enumerate(zip(ref_samples, sar_samples)):
+#     # plot_images(sample[0], reference_transform, sample[1], sar_transform)
+#     plot_overlapping_images(
+#         sample[0], sample[1], reference_transform, sar_transform)
+#     # matplot_overlapping_images(sample[0], sample[1])

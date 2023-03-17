@@ -33,7 +33,7 @@ def show_windows(img, windows, title=''):
     plt.show()
 
 
-x_paths, y_paths = paths_train_reference_images(type='water')
+x_paths, y_paths = paths_train_reference_images(type='flood')
 
 class_config = ClassConfig(
     names=['other', 'flood'],
@@ -45,8 +45,8 @@ found_samples = 0
 
 
 # go through x_paths and y_paths and remove the ones that conatin "Myanmar2019" anywhere in the string
-# x_paths = [x for x in x_paths if 'Texas' in x]
-# y_paths = [y for y in y_paths if 'Texas' in y]
+x_paths = [x for x in x_paths if 'Greece' in x]
+y_paths = [y for y in y_paths if 'Greece' in y]
 
 
 pprint(x_paths)
@@ -71,7 +71,7 @@ ds = SemanticSegmentationSlidingWindowGeoDataset.from_uris(
 )
 
 # print(len(ds))
-for i in tqdm(range(0, len(ds), 10)):
+for i in tqdm(range(0, len(ds), 1)):
     # for i in tqdm(range(350_000, len(ds), 2)):
     x, y = ds[i]
     # Convert x, y to torch tensors
