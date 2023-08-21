@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from rasterio.windows import Window
 from rasterio.plot import show
 import tempfile
+import os
 
 
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -15,9 +16,15 @@ x_paths, y_paths = paths_train_reference_images(type='flood')
 
 found_samples = 0
 
+target_train = 'Texas'
+
+target_path = os.path.join('data', 'train', 'flood', target_train)
+
+os.makedirs(target_path, exist_ok=True)
+
 # go through x_paths and y_paths and remove the ones that conatin "Myanmar2019" anywhere in the string
-x_paths = [x for x in x_paths if 'Texas' in x]
-y_paths = [y for y in y_paths if 'Texas' in y]
+x_paths = [x for x in x_paths if target_train in x]
+y_paths = [y for y in y_paths if target_train in y]
 
 print(x_paths[0])
 print(y_paths[0])
@@ -170,9 +177,9 @@ def sliding_window(width, height, window_size=(200, 200), stride=(200, 200)):
 #         samples.append(sample)
 #     return samples
 
-def extract_samples(src, window_size=(200, 200), stride=(50, 50)):
+def extract_samples(src, width, height, window_size=(200, 200), stride=(50, 50)):
     samples = []
-    width, height = src.width, src.height
+    # width, height = src.width, src.height
 
     for col, row, win_width, win_height in sliding_window(width, height, window_size, stride):
         window = Window(col_off=col, row_off=row,
@@ -196,11 +203,13 @@ print_image_bounds(sar_image_path, "SAR")
 
 width, height = window.width, window.height
 
-ref_samples = extract_samples(ref_src)
-sar_samples = extract_samples(cropped_sar_image)
+ref_samples = extract_samples(
+    ref_src, width=ref_src.width, height=ref_src.height)
+sar_samples = extract_samples(
+    cropped_sar_image, width=ref_src.width, height=ref_src.height)
 
 
-def plot_samples(ref_samples, sar_samples, alpha=0.5):
+def plot_samples(ref_samples, sar_samples, alpha=0.8):
     n_samples = len(ref_samples)
 
     for i, (ref_sample, sar_sample) in enumerate(zip(ref_samples, sar_samples)):
@@ -218,9 +227,61 @@ def plot_samples(ref_samples, sar_samples, alpha=0.5):
         plt.show()
         plt.close(fig)
 
+        break
+
+
+def save_samples(ref_samples, sar_samples, sar_profile, ref_profile):
+    for i, (ref_sample, sar_sample) in enumerate(zip(ref_samples, sar_samples)):
+        ref_data, ref_transform = ref_sample
+        sar_data, sar_transform = sar_sample
+
+        # Save both samples as geotiffs to disk
+        with rasterio.open(os.path.join(target_path, f"{i}_sar.tif"), 'w', **sar_profile) as writer:
+            writer.write(sar_data, 1)
+
+        with rasterio.open(os.path.join(target_path, f"{i}_ref.tif"), 'w', **ref_profile) as writer:
+            writer.write(ref_data, 1)
+
+        break
+
 
 plot_samples(ref_samples, sar_samples)
+# save_samples(ref_samples, sar_samples, cropped_sar_image.meta, ref_src.meta)
 
+
+def create_chips(raster_array, raster_meta, window_size, output_dir, image_type):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    with rasterio.open('temp.tif', 'w', **raster_meta) as temp:
+        temp.write(raster_array)
+
+    with rasterio.open('temp.tif') as src:
+        ncols, nrows = src.meta['width'], src.meta['height']
+        offsets = product(range(0, ncols, window_size),
+                          range(0, nrows, window_size))
+        for idx, (col_off, row_off) in enumerate(offsets):
+            window = Window(
+                col_off=col_off, row_off=row_off, width=window_size, height=window_size)
+            transform = src.window_transform(window)
+            chip = src.read(window=window)
+            chip_meta = src.meta.copy()
+            chip_meta.update({
+                'transform': transform,
+                'width': window.width,
+                'height': window.height
+            })
+
+            with rasterio.open(os.path.join(output_dir, f'{image_type}_{idx}.tif'), 'w', **chip_meta) as dst:
+                dst.write(chip)
+
+            break
+
+    os.remove('temp.tif')
+
+
+create_chips(reference_data, ref_src.meta, 200, target_path, 'ref')
+create_chips(sar_data, cropped_sar_image.meta, 200, target_path, 'sar')
 
 # for idx, sample in enumerate(zip(ref_samples, sar_samples)):
 #     # plot_images(sample[0], reference_transform, sample[1], sar_transform)
