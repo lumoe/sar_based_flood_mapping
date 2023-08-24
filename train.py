@@ -6,11 +6,14 @@ import os
 from torch.utils.tensorboard import SummaryWriter
 
 from torch.utils.data.dataset import random_split
+from unet import UNet, dice_loss, dice_coeff
+
+import torch.nn.functional as F
 
 
-class UNet(nn.Module):
+class MyUNet(nn.Module):
     def __init__(self, in_channels=1, out_channels=1):
-        super(UNet, self).__init__()
+        super(MyUNet, self).__init__()
 
         def double_conv(in_channels, out_channels):
             return nn.Sequential(
@@ -66,25 +69,76 @@ class UNet(nn.Module):
 from utils import TrainImageDataset
 from torch.utils.data import DataLoader
 
-learning_rate = 0.001
-epochs = 10
-batch_size = 16
+
 checkpoint_dir = os.path.join("models")
 
-writer = SummaryWriter("runs/unet_training")
+writer = SummaryWriter("runs/unet_fine_tuning")
 
 
 if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 
 from tqdm import tqdm
+from typing import Union
 
 
-def train():
-    dataset = TrainImageDataset("data/tmp/water")
+def evaluate(model, dataloader, device) -> Union[torch.Tensor, float]:
+    # Start of validation
+    model.eval()  # Set model to evaluation mode
+    val_loss = 0
+    with torch.no_grad():
+        for images, masks in tqdm(dataloader):
+            images = images.to(device)
+            masks = masks.to(device)
+
+            outputs = model(images)
+            mask_pred = (F.sigmoid(outputs) > 0.5).float()
+
+            val_loss += dice_coeff(mask_pred, masks, reduce_batch_first=False)
+
+    model.train()
+    return val_loss / len(dataloader)
+
+
+def get_latest_checkpoint(fine_tuning: bool = False):
+    checkpoints = os.listdir(checkpoint_dir)
+    checkpoints = [c for c in checkpoints if c.endswith(".pth")]
+    checkpoints_all = sorted(
+        checkpoints, key=lambda x: int(x.split("_")[-1].split(".")[0])
+    )
+
+    if fine_tuning:
+        checkpoints = list(filter(lambda x: "_fine_tuning" in x, checkpoints_all))
+    else:
+        checkpoints = list(filter(lambda x: "_fine_tuning" not in x, checkpoints_all))
+
+    if len(checkpoints) == 0:
+        print(f"Loading latest checkpoint from {checkpoints_all[-1]}")
+        return os.path.join(checkpoint_dir, checkpoints_all[-1])
+    else:
+        print(f"Loading latest checkpoint from {checkpoints[-1]}")
+        return os.path.join(checkpoint_dir, checkpoints[-1])
+
+
+def train(
+    weight_decay: float = 1e-8,
+    momentum: float = 0.999,
+    gradient_clipping: float = 1.0,
+    val_percent=0.15,
+    learning_rate=1e-5,
+    epochs=45,
+    batch_size=8,
+    load_checkpoint=False,
+    fine_tuning=False,
+):
+    if fine_tuning:
+        dataset = "data/tmp/flood"
+    else:
+        dataset = "data/tmp/water"
+
+    dataset = TrainImageDataset(dataset)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    val_percent = 0.2
     num_val = int(val_percent * len(dataset))
     num_train = len(dataset) - num_val
     train_dataset, val_dataset = random_split(dataset, [num_train, num_val])
@@ -94,12 +148,35 @@ def train():
 
     # Model, Loss, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = UNet().to(device)
+    model = UNet(n_channels=1, n_classes=1, bilinear=False).to(device)
+    start_epoch = 0
+
+    optimizer = optim.RMSprop(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+        momentum=momentum,
+        foreach=True,
+    )
+
+    # Load checkpoint
+    if load_checkpoint:
+        checkpoint = torch.load(get_latest_checkpoint(fine_tuning))
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint["epoch"]
+        loss = checkpoint["loss"]
+        print(f"Loaded checkpoint from epoch {start_epoch} with loss {loss}")
+
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, "max", patience=5
+    )  # goal: maximize Dice score
+    grad_scaler = torch.cuda.amp.GradScaler(enabled=True)
 
     # Training loop
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         total_loss = 0
         progress_bar = tqdm(
@@ -114,11 +191,18 @@ def train():
             # Forward
             outputs = model(images)
             loss = criterion(outputs, masks)
+            # print(F.sigmoid(outputs.squeeze(1)).shape, masks.squeeze(1).shape)
+            # exit()
+            loss += dice_loss(
+                F.sigmoid(outputs.squeeze(1)), masks.squeeze(1), multiclass=False
+            )
 
             # Backward
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            grad_scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)
+            grad_scaler.step(optimizer)
+            grad_scaler.update()
 
             total_loss += loss.item()
 
@@ -128,6 +212,12 @@ def train():
             )
 
             progress_bar.set_postfix(loss=total_loss / (batch_idx + 1))
+
+            if batch_idx % 400 == 0:
+                eval_res = evaluate(model, val_loader, device)
+                writer.add_scalar(
+                    "evaluation loss", eval_res, epoch * len(dataloader) + batch_idx
+                )
 
         avg_loss = total_loss / len(dataloader)
         writer.add_scalar("average training loss", avg_loss, epoch)
@@ -141,24 +231,15 @@ def train():
             "loss": total_loss / len(dataloader),
         }
         torch.save(
-            checkpoint, os.path.join(checkpoint_dir, f"checkpoint_epoch_{epoch+1}.pth")
+            checkpoint,
+            os.path.join(
+                checkpoint_dir,
+                f"checkpoint_epoch{'_fine_tuning' if fine_tuning else ''}_{epoch+1}.pth",
+            ),
         )
-
-        # Start of validation
-        model.eval()  # Set model to evaluation mode
-        val_loss = 0
-        with torch.no_grad():
-            for images, masks in val_loader:
-                images = images.to(device)
-                masks = masks.to(device)
-
-                outputs = model(images)
-                loss = criterion(outputs, masks)
-                val_loss += loss.item()
-            writer.add_scalar("average validation loss", val_loss, epoch)
 
     writer.close()
 
 
 if __name__ == "__main__":
-    train()
+    train(load_checkpoint=True, fine_tuning=True)

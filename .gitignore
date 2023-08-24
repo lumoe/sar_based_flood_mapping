@@ -133,3 +133,5 @@ dmypy.json
 # Project specific ignore 
 data/
 data_old/
+models/
+runs/

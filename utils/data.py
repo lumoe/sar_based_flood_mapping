@@ -29,6 +29,9 @@ class TrainImageDataset(Dataset):
             image_data: np.ndarray = image.read()
             reference_data: np.ndarray = reference.read()
 
+            image_data = image_data.astype(np.float32)
+            reference_data = reference_data.astype(np.float32)
+
             image_data = torch.tensor(image_data, dtype=torch.float32)
             reference_data = torch.tensor(reference_data, dtype=torch.float32)
 
