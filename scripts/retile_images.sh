@@ -20,5 +20,7 @@ find "$input_dir" -name "*.tif" -print0 | while read -d $'\0' file; do
 
     # Run gdal_translate with the desired settings
     # gdal_translate -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 "$file" "$output_file"
-    gdalwarp -of VRT "$file" "$output_file" -t_srs "EPSG:4326";
+    # gdalwarp -of VRT "$file" "$output_file" -t_srs "EPSG:4326";
+    # remove file if it ends with _WARPED.tif
+    find "$input_dir" -name "*_WARPED.tif" -type f -delete
 done

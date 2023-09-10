@@ -10,6 +10,30 @@ from rasterio.io import DatasetReader
 from rasterio.windows import Window
 from rasterio import mask, warp
 
+import rasterio
+
+AVAILABLE_FLOOD_EVENTS = ['Greece2018', 'Myanmar2019', 'Texas2017']
+
+
+def get_crs_for_file(file_path: str) -> str:
+    with rasterio.open(file_path) as src:
+        return src.crs
+
+
+def paths_train_flood_images(event: Literal['Greece2018', 'Myanmar2019', 'Texas2017']) -> Tuple[List[str], List[str]]:
+    images_folder_filter = os.path.join(
+        config.data.train.images_water if type == "water" else config.data.train.images_flood, '**/*.tif')
+    reference_folder_filter = os.path.join(
+        config.data.train.reference_water if type == "water" else config.data.train.reference_flood, '**/*.tif')
+    paths_X, paths_Y = glob.glob(images_folder_filter, recursive=True), glob.glob(
+        reference_folder_filter, recursive=True)
+
+    # go through x_paths and y_paths and remove the ones that conatin "Myanmar2019" anywhere in the string
+    paths_X = [x for x in paths_X if event in x]
+    paths_Y = [y for y in paths_Y if event in y]
+
+    return paths_X, paths_Y
+
 
 def paths_train_reference_images(type: Literal["water", "flood"]) -> Tuple[List[str], List[str]]:
     images_folder_filter = os.path.join(

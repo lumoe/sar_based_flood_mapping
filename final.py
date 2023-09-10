@@ -14,7 +14,7 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 
 from utils import paths_train_reference_images
 
-target_train = 'Greece'
+target_train = 'Myanmar'
 
 x_paths, y_paths = paths_train_reference_images(type='flood')
 x_paths = [x for x in x_paths if target_train in x]
@@ -35,7 +35,7 @@ width, height = ref_src.width, ref_src.height
 print()
 
 
-def chip_geotiff(input_file, output_folder, chip_size=200, stride=100):
+def chip_geotiff(input_file, output_folder, chip_size=1000, stride=1000):
     with rasterio.open(input_file) as src:
         width, height = src.width, src.height
         meta = src.meta.copy()
@@ -89,4 +89,4 @@ with rasterio.open(y_paths[0]) as gt_src:
 
 # Generate chips for ground truth and clipped Sentinel-1 images
 chip_geotiff(ground_truth, output_path_gt)
-chip_geotiff(clipped_sentinel_path, output_path_sentinel)
+chip_geotiff(sentinel_path, output_path_sentinel)
