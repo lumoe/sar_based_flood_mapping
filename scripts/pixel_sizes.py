@@ -4,11 +4,8 @@ import rasterio
 
 from typing import List
 
-<<<<<<< HEAD
-=======
 from config import DATA_DICT
 
->>>>>>> master
 # Get all tif files from 'data' folder recursively
 
 
@@ -16,18 +13,11 @@ def tif_files(path: str) -> List[str]:
     tif_files = []
     for root, dirs, files in os.walk(path):
         for file in files:
-<<<<<<< HEAD
-            if file.endswith('.tif'):
-                tif_files.append(os.path.join(root, file))
-    return tif_files
-
-=======
             if file.endswith(".tif"):
                 tif_files.append(os.path.join(root, file))
     return tif_files
 
 
->>>>>>> master
 # Get pixel size of all tif files
 
 
@@ -39,14 +29,6 @@ def pixel_sizes(tif_files: List[str]) -> List[float]:
     return pixel_sizes
 
 
-<<<<<<< HEAD
-if __name__ == '__main__':
-    files = tif_files('data')
-    sizes = pixel_sizes(files)
-    for pixel_size in zip(files, sizes):
-        if pixel_size[1] != (20, 20):
-            print(pixel_size)
-=======
 if __name__ == "__main__":
     # files = tif_files('data')
     # sizes = pixel_sizes(files)
@@ -67,4 +49,3 @@ if __name__ == "__main__":
             image_sizes = pixel_sizes(image_files)
             for sizes in reference_sizes + image_sizes:
                 print(sizes)
->>>>>>> master

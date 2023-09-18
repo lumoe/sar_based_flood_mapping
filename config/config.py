@@ -8,8 +8,6 @@ def load_config():
 
 
 config = Munch.fromDict(load_config())
-<<<<<<< HEAD
-=======
 
 
 DATA_DICT = dict(
@@ -52,4 +50,3 @@ DATA_DICT = dict(
         ),
     )
 )
->>>>>>> master
