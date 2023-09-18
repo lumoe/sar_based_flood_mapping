@@ -44,11 +44,22 @@ class TestChip:
     y: int
     location: LocationType
     image_type: ImageType
-    path_prefix = os.path.join("data", "test")
+    path_prefix = os.path.join("data", "tmp", "test")
 
     @property
     def filename(self) -> str:
         return os.path.join(self.image_type, f"{self.location}_{self.x}_{self.y}.tif")
+
+    def save(self):
+        with rasterio.open(
+            os.path.join(self.path_prefix, self.filename),
+            "w",
+            width=self.image.shape[0],
+            height=self.image.shape[1],
+            count=1,
+            dtype=self.image.dtype,
+        ) as writer:
+            writer.write(self.image, 1)
 
 
 def visualize_chip_overlaps(chips: List[TestChip]):
@@ -171,6 +182,26 @@ def all_test_tiffs(folder: str):
     return glob.glob(folder + "/**/*.tif", recursive=True)
 
 
+def save_chips(
+    chips: Tuple[List[TestChip], List[TestChip], List[TestChip], List[TestChip]]
+) -> None:
+    tuw_results, input, reference, masks = chips
+
+    for a, b, c, d in zip(tuw_results, input, reference, masks):
+        if (
+            a.image.shape != (256, 256)
+            or b.image.shape != (256, 256)
+            or c.image.shape != (256, 256)
+            or d.image.shape != (256, 256)
+        ):
+            continue
+
+        a.save()
+        b.save()
+        c.save()
+        d.save()
+
+
 from pprint import pprint
 
 if __name__ == "__main__":
@@ -184,6 +215,8 @@ if __name__ == "__main__":
             all_test_tiffs(folders),
             key=lambda x: x.split("/")[3],
         )
+
+        print(folders)
 
         input_file = folders[0]
         masks_file = folders[1]
@@ -200,10 +233,12 @@ if __name__ == "__main__":
 
         # a, b, c, d = chips
         # for i, x in enumerate(a):
-        #     visualize_chip_overlaps([a[i], b[i], c[i], d[i]])
 
-        #     if i == 10:
-        #         break
+        save_chips(chips)
+
+        # if i >= 50 and i < 60:
+        #     visualize_chip_overlaps([a[i], b[i], c[i], d[i]])
+        #     print(folders)
 
     # for tif_file, pixel_size in pixel_sizes(all_test_tiffs(TEST_FOLDER)):
     #     if pixel_size != (20, 20):

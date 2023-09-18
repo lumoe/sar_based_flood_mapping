@@ -120,6 +120,9 @@ def get_latest_checkpoint(fine_tuning: bool = False):
         return os.path.join(checkpoint_dir, checkpoints[-1])
 
 
+from torchviz import make_dot
+
+
 def train(
     weight_decay: float = 1e-8,
     momentum: float = 0.999,
@@ -130,6 +133,7 @@ def train(
     batch_size=8,
     load_checkpoint=False,
     fine_tuning=False,
+    plot_only=False,
 ):
     if fine_tuning:
         dataset = "data/tmp/flood"
@@ -149,6 +153,7 @@ def train(
     # Model, Loss, Optimizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = UNet(n_channels=1, n_classes=1, bilinear=False).to(device)
+
     start_epoch = 0
 
     optimizer = optim.RMSprop(
@@ -170,10 +175,20 @@ def train(
 
     criterion = nn.BCEWithLogitsLoss()
 
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, "max", patience=5
-    )  # goal: maximize Dice score
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, "max", patience=5)
     grad_scaler = torch.cuda.amp.GradScaler(enabled=True)
+
+    if plot_only:
+        for images, _ in train_loader:
+            images = images.to(device)
+            g = make_dot(
+                model(images).to(device),
+                params=dict(model.named_parameters()),
+                # show_saved=True,
+            )
+            # print(g)
+            g.save("out.dot")
+            return
 
     # Training loop
     for epoch in range(start_epoch, epochs):
@@ -215,6 +230,7 @@ def train(
 
             if batch_idx % 400 == 0:
                 eval_res = evaluate(model, val_loader, device)
+                scheduler.step(eval_res)
                 writer.add_scalar(
                     "evaluation loss", eval_res, epoch * len(dataloader) + batch_idx
                 )
@@ -242,4 +258,4 @@ def train(
 
 
 if __name__ == "__main__":
-    train(load_checkpoint=True, fine_tuning=True)
+    train(load_checkpoint=True, fine_tuning=True, plot_only=True)
